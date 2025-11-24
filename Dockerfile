@@ -1,11 +1,7 @@
-FROM node:latest
-
+FROM node:20
 WORKDIR /app
-
-COPY . /app
-
-RUN npm i && \
-    npm run build && \
-    npm run register
-
-CMD [ "npm", "run", "start" ]
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+CMD ["npm", "run", "start"]
