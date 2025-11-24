@@ -1,4 +1,3 @@
-// src/index.ts
 import 'dotenv/config';
 import { 
   Client, 
