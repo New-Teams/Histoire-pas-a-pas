@@ -1,4 +1,5 @@
 # Histoire pas a pas bot
+
 A modern Discord bot template built with TypeScript for scalable and maintainable bot development.
 ## Features
 - 🤖 Discord.js v14 framework
