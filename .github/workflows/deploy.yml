@@ -32,7 +32,7 @@ jobs:
       - name: Deploy to VPS
         run: |
           ssh -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "
-            cd /home/${{ secrets.VPS_USER }}/workspace/projects/Histoire-pas-a-pas &&
+            cd /${{ secrets.VPS_USER }}/workspace/projects/Histoire-pas-a-pas &&
             git pull &&
             docker stop histoire 2>/dev/null || true &&
             docker rm histoire 2>/dev/null || true &&
