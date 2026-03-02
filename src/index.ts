@@ -9,6 +9,7 @@ import {
   ChatInputCommandInteraction,
   SlashCommandBuilder
 } from 'discord.js';
+import Redis from 'ioredis';
 
 interface StoryData {
   channelId: string;
@@ -27,9 +28,12 @@ interface GuildConfig {
   }>;
 }
 
+const REDIS_KEY_PREFIX = 'guild:';
+
 class StoryBot {
   private client: Client;
   private configs: Map<string, GuildConfig> = new Map();
+  private redis: Redis;
 
   constructor() {
     this.client = new Client({
@@ -40,11 +44,56 @@ class StoryBot {
       ],
     });
 
+    const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
+    // lazyConnect lets us explicitly connect in the ready handler after the bot is up
+    this.redis = new Redis(redisUrl, { lazyConnect: true });
+    this.redis.on('error', (err) => console.error('❌ Erreur Redis:', err));
+
     this.setupEventListeners();
   }
 
+  private async loadConfigsFromRedis(): Promise<void> {
+    try {
+      // Use SCAN to iterate keys without blocking Redis
+      let cursor = '0';
+      const keys: string[] = [];
+      do {
+        const [nextCursor, batch] = await this.redis.scan(cursor, 'MATCH', `${REDIS_KEY_PREFIX}*`, 'COUNT', 100);
+        cursor = nextCursor;
+        keys.push(...batch);
+      } while (cursor !== '0');
+
+      for (const key of keys) {
+        const raw = await this.redis.get(key);
+        if (!raw) continue;
+        const config = JSON.parse(raw) as GuildConfig;
+        // Re-hydrate Date objects serialized as ISO strings
+        config.completedStories = (config.completedStories ?? []).map((s) => ({
+          ...s,
+          completedAt: new Date(s.completedAt),
+        }));
+        this.configs.set(config.guildId, config);
+      }
+      console.log(`✅ ${keys.length} configuration(s) chargée(s) depuis Redis`);
+    } catch (err) {
+      console.error('❌ Impossible de charger les configurations depuis Redis:', err);
+    }
+  }
+
+  private async saveConfig(guildId: string): Promise<void> {
+    const config = this.configs.get(guildId);
+    if (!config) return;
+    try {
+      await this.redis.set(`${REDIS_KEY_PREFIX}${guildId}`, JSON.stringify(config));
+    } catch (err) {
+      console.error(`❌ Impossible de sauvegarder la config pour ${guildId}:`, err);
+    }
+  }
+
   private setupEventListeners() {
-    this.client.once('ready', () => {
+    this.client.once('ready', async () => {
+      await this.redis.connect().catch((err) => console.error('❌ Impossible de se connecter à Redis:', err));
+      await this.loadConfigsFromRedis();
       console.log(`✅ Bot connecté en tant que ${this.client.user?.tag}`);
       this.registerCommands();
     });
@@ -147,6 +196,8 @@ class StoryBot {
       isActive: true,
     };
 
+    await this.saveConfig(interaction.guildId!);
+
     await interaction.reply({
       content: `✅ Le channel <#${channel.id}> est maintenant configuré pour les histoires collaboratives!\n\n**Comment ça marche?**\n• Chaque membre peut envoyer **un mot** à la fois\n• L'histoire se termine automatiquement quand quelqu'un met un point (.)`,
       ephemeral: true,
@@ -188,6 +239,7 @@ class StoryBot {
     }
 
     config.currentStory.words = [];
+    await this.saveConfig(interaction.guildId!);
     await interaction.reply({
       content: '✅ Histoire réinitialisée!',
       ephemeral: true,
@@ -212,6 +264,8 @@ class StoryBot {
     const channelId = config.storyChannelId;
     config.storyChannelId = null;
     config.currentStory = null;
+
+    await this.saveConfig(interaction.guildId!);
 
     await interaction.reply({
       content: `✅ Le channel d'histoires a été désactivé.`,
@@ -294,6 +348,8 @@ class StoryBot {
     // Si le mot se termine par un point, terminer l'histoire
     if (hasEndingPunctuation) {
       await this.completeStory(config);
+    } else {
+      await this.saveConfig(message.guildId!);
     }
   }
 
@@ -333,6 +389,8 @@ class StoryBot {
       words: [],
       isActive: true,
     };
+
+    await this.saveConfig(config.guildId);
 
     await channel.send('📖 **Nouvelle histoire!** C\'est reparti pour une nouvelle aventure collaborative!');
   }
