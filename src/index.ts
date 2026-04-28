@@ -55,8 +55,9 @@ class StoryBot {
     });
 
     const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
-    this.redis = new Redis(redisUrl, { lazyConnect: true });
+    this.redis = new Redis(redisUrl);
     this.redis.on('error', (err) => console.error('❌ Erreur Redis:', err));
+    this.redis.on('connect', () => console.log('✅ Redis connecté'));
 
     this.setupEventListeners();
   }
@@ -118,10 +119,7 @@ class StoryBot {
   }
 
   private setupEventListeners() {
-    this.client.once('ready', async () => {
-      await this.redis.connect().catch((err) =>
-        console.error('❌ Impossible de se connecter à Redis:', err),
-      );
+    this.client.once('clientReady', async () => {
       await this.loadConfigsFromRedis();
       this.isReady = true;
       console.log(`✅ Bot connecté en tant que ${this.client.user?.tag}`);
@@ -409,3 +407,4 @@ if (!TOKEN) {
 }
 
 new StoryBot().start(TOKEN);
+                          
